@@ -17,10 +17,9 @@ url_data = (
 response = requests.get(url_data)
 data = response.json()
 
-if "price" in data:
+if "values" in data:
 
-    price = data["price"]
-
+    price = data["values"][0]["close"]
     message = f"""
 🤖 XAU SIGNAL ARY
 
