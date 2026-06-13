@@ -3,14 +3,50 @@ import requests
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
-url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+# Ambil harga emas terbaru
+url_data = (
+    f"https://api.twelvedata.com/price"
+    f"?symbol=XAU/USD"
+    f"&apikey={API_KEY}"
+)
 
-payload = {
-    "chat_id": CHAT_ID,
-    "text": "🤖 XAU SIGNAL ARY\n\nBot berhasil online di Railway.\nStatus: ACTIVE"
-}
+response = requests.get(url_data)
+data = response.json()
 
-requests.post(url, data=payload)
+if "price" in data:
 
-print("Pesan terkirim")
+    price = data["price"]
+
+    message = f"""
+🤖 XAU SIGNAL ARY
+
+Status : ACTIVE
+
+XAUUSD Live Price
+{price}
+"""
+
+else:
+
+    message = f"""
+⚠️ XAU SIGNAL ARY
+
+Gagal mengambil data market.
+
+Response:
+{data}
+"""
+
+telegram_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
+requests.post(
+    telegram_url,
+    data={
+        "chat_id": CHAT_ID,
+        "text": message
+    }
+)
+
+print(message)
