@@ -7,8 +7,10 @@ API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
 # Ambil harga emas terbaru
 url_data = (
-    f"https://api.twelvedata.com/price"
+    f"https://api.twelvedata.com/time_series"
     f"?symbol=XAU/USD"
+    f"&interval=5min"
+    f"&outputsize=200"
     f"&apikey={API_KEY}"
 )
 
