@@ -1,0 +1,17 @@
+//@version=6
+indicator("XAU ARY LITE", overlay=true)
+
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+
+plot(ema20)
+plot(ema50)
+
+buySignal = ta.crossover(ema20, ema50)
+sellSignal = ta.crossunder(ema20, ema50)
+
+if buySignal
+    label.new(bar_index, low, "BUY")
+
+if sellSignal
+    label.new(bar_index, high, "SELL")
