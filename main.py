@@ -5,12 +5,11 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
-# Ambil harga emas terbaru
 url_data = (
     f"https://api.twelvedata.com/time_series"
     f"?symbol=XAU/USD"
     f"&interval=5min"
-    f"&outputsize=200"
+    f"&outputsize=50"
     f"&apikey={API_KEY}"
 )
 
@@ -19,24 +18,54 @@ data = response.json()
 
 if "values" in data:
 
-    price = data["values"][0]["close"]
+    closes = [float(c["close"]) for c in data["values"]]
+
+    price = closes[0]
+
+    ema20 = sum(closes[:20]) / 20
+    ema50 = sum(closes[:50]) / 50
+
+    trend = "BULLISH" if ema20 > ema50 else "BEARISH"
+
+    confidence = 70
+
+    grade = "WATCHLIST"
+
+    if confidence >= 75:
+        grade = "B"
+
+    if confidence >= 80:
+        grade = "A"
+
+    if confidence >= 85:
+        grade = "A+"
+
+    if confidence >= 90:
+        grade = "PREMIUM"
+
     message = f"""
-🤖 XAU SIGNAL ARY
+📊 XAU ARY SCAN
 
-Status : ACTIVE
+Price : {price}
 
-XAUUSD Live Price
-{price}
+Trend : {trend}
+
+EMA20 : {round(ema20,2)}
+EMA50 : {round(ema50,2)}
+
+Confidence : {confidence}%
+Grade : {grade}
+
+Status : SCANNING
 """
 
 else:
 
     message = f"""
-⚠️ XAU SIGNAL ARY
+⚠️ XAU ARY
 
-Gagal mengambil data market.
+Gagal mengambil data market
 
-Response:
 {data}
 """
 
