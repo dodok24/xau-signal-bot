@@ -10,25 +10,16 @@ trendBear = h1Ema20 < h1Ema50
 ema20 = ta.ema(close, 20)
 ema50 = ta.ema(close, 50)
 
-plot(ema20, title="EMA20")
-plot(ema50, title="EMA50")
+plot(ema20)
+plot(ema50)
 
 atr = ta.atr(14)
 
 buySignal = trendBull and ta.crossover(ema20, ema50)
 sellSignal = trendBear and ta.crossunder(ema20, ema50)
 
-buySL = close - atr * 1.5
-buyTP = close + atr * 3
-
-sellSL = close + atr * 1.5
-sellTP = close - atr * 3
-
 if buySignal
     label.new(bar_index, low, "BUY")
 
 if sellSignal
     label.new(bar_index, high, "SELL")
-
-alertcondition(buySignal, title="BUY SIGNAL", message="XAU BUY")
-alertcondition(sellSignal, title="SELL SIGNAL", message="XAU SELL")
