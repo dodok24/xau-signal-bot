@@ -6,133 +6,193 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
-url = (
-    f"https://api.twelvedata.com/time_series"
-    f"?symbol=XAU/USD"
-    f"&interval=5min"
-    f"&outputsize=100"
-    f"&apikey={API_KEY}"
-)
 
-r = requests.get(url)
-data = r.json()
+def get_data(interval, size=100):
+    url = (
+        f"https://api.twelvedata.com/time_series"
+        f"?symbol=XAU/USD"
+        f"&interval={interval}"
+        f"&outputsize={size}"
+        f"&apikey={API_KEY}"
+    )
 
-if "values" not in data:
+    data = requests.get(url).json()
+
+    if "values" not in data:
+        return None
+
+    df = pd.DataFrame(data["values"])
+
+    df["close"] = df["close"].astype(float)
+
+    df = df[::-1].reset_index(drop=True)
+
+    return df
+
+
+df5 = get_data("5min")
+df15 = get_data("15min")
+df60 = get_data("1h")
+
+if df5 is None or df15 is None or df60 is None:
     print("Data gagal")
     exit()
 
-df = pd.DataFrame(data["values"])
+# ======================
+# PRICE
+# ======================
 
-df["close"] = df["close"].astype(float)
-df = df[::-1]
+price = df5["close"].iloc[-1]
 
-price = df["close"].iloc[-1]
+# ======================
+# EMA H1
+# ======================
 
-ema20 = df["close"].ewm(span=20).mean().iloc[-1]
-ema50 = df["close"].ewm(span=50).mean().iloc[-1]
+ema20_h1 = df60["close"].ewm(span=20).mean().iloc[-1]
+ema50_h1 = df60["close"].ewm(span=50).mean().iloc[-1]
 
-# TREND
-if ema20 > ema50:
-    trend = "BULLISH"
-else:
-    trend = "BEARISH"
+# ======================
+# EMA M15
+# ======================
 
-# CONFIDENCE
-confidence = 0
+ema20_m15 = df15["close"].ewm(span=20).mean().iloc[-1]
+ema50_m15 = df15["close"].ewm(span=50).mean().iloc[-1]
 
-if ema20 > ema50:
-    confidence += 30
+# ======================
+# EMA M5
+# ======================
 
-distance = abs(price - ema20)
+ema20_m5 = df5["close"].ewm(span=20).mean().iloc[-1]
+
+# ======================
+# SCORE
+# ======================
+
+score = 0
+
+# H1 trend
+if ema20_h1 > ema50_h1:
+    score += 30
+
+# M15 trend
+if ema20_m15 > ema50_m15:
+    score += 25
+
+# M5 momentum
+if price > ema20_m5:
+    score += 20
+
+# Retest EMA20
+distance = abs(price - ema20_m5)
 
 if distance < 2:
-    confidence += 20
+    score += 15
 
-if price > ema20:
-    confidence += 20
+# Volatility
+atr = abs(df5["close"].diff()).rolling(14).mean().iloc[-1]
 
-if abs(ema20 - ema50) > 1:
-    confidence += 30
+if atr > 0:
+    score += 10
 
+# ======================
 # GRADE
-if confidence >= 90:
+# ======================
+
+if score >= 90:
     grade = "PREMIUM"
-elif confidence >= 80:
+elif score >= 80:
     grade = "A+"
-elif confidence >= 70:
+elif score >= 70:
     grade = "A"
-elif confidence >= 60:
+elif score >= 60:
     grade = "WATCHLIST"
 else:
     grade = "NO TRADE"
 
-# ATR SEDERHANA
-atr = abs(df["close"].diff()).rolling(14).mean().iloc[-1]
+# ======================
+# SIGNAL
+# ======================
+
+signal = "NO TRADE"
+
+bull_h1 = ema20_h1 > ema50_h1
+bear_h1 = ema20_h1 < ema50_h1
+
+bull_m15 = ema20_m15 > ema50_m15
+bear_m15 = ema20_m15 < ema50_m15
+
+if bull_h1 and bull_m15 and score >= 70:
+    signal = "BUY"
+
+if bear_h1 and bear_m15 and score >= 70:
+    signal = "SELL"
+
+# ======================
+# SL TP
+# ======================
 
 sl_buy = price - atr * 1.5
 tp1_buy = price + atr * 2
 tp2_buy = price + atr * 4
+tp3_buy = price + atr * 6
 
 sl_sell = price + atr * 1.5
 tp1_sell = price - atr * 2
 tp2_sell = price - atr * 4
+tp3_sell = price - atr * 6
 
-# SIGNAL
-signal = "NO TRADE"
-
-if trend == "BULLISH" and confidence >= 70:
-    signal = "BUY"
-
-if trend == "BEARISH" and confidence >= 70:
-    signal = "SELL"
-
+# ======================
 # MESSAGE
+# ======================
+
 if signal == "BUY":
 
     message = f"""
-🚀 XAU ARY SCAN
+🚀 XAU ARY SIGNAL
 
-📈 SIGNAL : BUY
+📈 BUY
 
 Price : {price:.2f}
 
 SL : {sl_buy:.2f}
+
 TP1 : {tp1_buy:.2f}
 TP2 : {tp2_buy:.2f}
+TP3 : {tp3_buy:.2f}
 
-Confidence : {confidence}%
+Score : {score}
 Grade : {grade}
 """
 
 elif signal == "SELL":
 
     message = f"""
-🚀 XAU ARY SCAN
+🚀 XAU ARY SIGNAL
 
-📉 SIGNAL : SELL
+📉 SELL
 
 Price : {price:.2f}
 
 SL : {sl_sell:.2f}
+
 TP1 : {tp1_sell:.2f}
 TP2 : {tp2_sell:.2f}
+TP3 : {tp3_sell:.2f}
 
-Confidence : {confidence}%
+Score : {score}
 Grade : {grade}
 """
 
 else:
 
     message = f"""
-🚀 XAU ARY SCAN
+⚠️ XAU ARY
 
-Status : NO TRADE
+NO TRADE
 
 Price : {price:.2f}
 
-Trend : {trend}
-
-Confidence : {confidence}%
+Score : {score}
 Grade : {grade}
 """
 
