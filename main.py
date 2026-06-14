@@ -20,63 +20,74 @@ def send_telegram(message):
     )
 
 
-def run_scan():
+def get_data(symbol, interval="5min", size=100):
 
-    try:
+    url = (
+        f"https://api.twelvedata.com/time_series"
+        f"?symbol={symbol}"
+        f"&interval={interval}"
+        f"&outputsize={size}"
+        f"&apikey={API_KEY}"
+    )
 
-        url = (
-            f"https://api.twelvedata.com/time_series"
-            f"?symbol=XAU/USD"
-            f"&interval=5min"
-            f"&outputsize=100"
-            f"&apikey={API_KEY}"
-        )
+    data = requests.get(url).json()
 
-        data = requests.get(url).json()
+    if "values" not in data:
+        return None
 
-        if "values" not in data:
-            send_telegram(f"⚠️ Data error\n\n{data}")
-            return
+    df = pd.DataFrame(data["values"])
 
-        df = pd.DataFrame(data["values"])
+    df["close"] = df["close"].astype(float)
 
-        df["close"] = df["close"].astype(float)
+    df = df[::-1].reset_index(drop=True)
 
-        df = df[::-1].reset_index(drop=True)
+    return df
 
-        price = df["close"].iloc[-1]
 
-        ema20 = df["close"].ewm(span=20).mean().iloc[-1]
-        ema50 = df["close"].ewm(span=50).mean().iloc[-1]
+def scan_symbol(symbol):
 
-        score = 0
+    df = get_data(symbol)
 
-        if ema20 > ema50:
-            score += 55
+    if df is None:
+        return f"""
+[{symbol}]
 
-        if price > ema20:
-            score += 20
+DATA ERROR
+"""
 
-        distance = abs(price - ema20)
+    price = df["close"].iloc[-1]
 
-        if distance < 2:
-            score += 15
+    ema20 = df["close"].ewm(span=20).mean().iloc[-1]
+    ema50 = df["close"].ewm(span=50).mean().iloc[-1]
 
-        score += 10
+    score = 0
 
-        if score >= 90:
-            grade = "PREMIUM"
-        elif score >= 80:
-            grade = "A+"
-        elif score >= 70:
-            grade = "A"
-        elif score >= 60:
-            grade = "WATCHLIST"
-        else:
-            grade = "NO TRADE"
+    if ema20 > ema50:
+        score += 55
 
-        message = f"""
-🚀 XAU ARY SCAN
+    if price > ema20:
+        score += 20
+
+    distance = abs(price - ema20)
+
+    if distance < (price * 0.001):
+        score += 15
+
+    score += 10
+
+    if score >= 90:
+        grade = "PREMIUM"
+    elif score >= 80:
+        grade = "A+"
+    elif score >= 70:
+        grade = "A"
+    elif score >= 60:
+        grade = "WATCHLIST"
+    else:
+        grade = "NO TRADE"
+
+    return f"""
+[{symbol}]
 
 Price : {price:.2f}
 
@@ -85,6 +96,24 @@ EMA50 : {ema50:.2f}
 
 Score : {score}
 Grade : {grade}
+"""
+
+
+def run_scan():
+
+    try:
+
+        xau_report = scan_symbol("XAU/USD")
+        btc_report = scan_symbol("BTC/USD")
+
+        message = f"""
+🚀 XAU SIGNAL ARY
+
+{xau_report}
+
+------------------------
+
+{btc_report}
 
 Status : SCANNING
 """
@@ -95,7 +124,11 @@ Status : SCANNING
 
     except Exception as e:
 
-        send_telegram(f"⚠️ ERROR\n\n{str(e)}")
+        send_telegram(
+            f"⚠️ XAU SIGNAL ARY ERROR\n\n{str(e)}"
+        )
+
+        print(str(e))
 
 
 while True:
