@@ -25,27 +25,10 @@ sellSL = close + atr * 1.5
 sellTP = close - atr * 3
 
 if buySignal
-    label.new(
-         bar_index,
-         low,
-         "BUY\nSL: " + str.tostring(buySL) +
-         "\nTP: " + str.tostring(buyTP),
-         style=label.style_label_up)
+    label.new(bar_index, low, "BUY")
 
 if sellSignal
-    label.new(
-         bar_index,
-         high,
-         "SELL\nSL: " + str.tostring(sellSL) +
-         "\nTP: " + str.tostring(sellTP),
-         style=label.style_label_down)
+    label.new(bar_index, high, "SELL")
 
-alertcondition(
-     buySignal,
-     title="BUY SIGNAL",
-     message="XAU BUY")
-
-alertcondition(
-     sellSignal,
-     title="SELL SIGNAL",
-     message="XAU SELL")
+alertcondition(buySignal, title="BUY SIGNAL", message="XAU BUY")
+alertcondition(sellSignal, title="SELL SIGNAL", message="XAU SELL")
