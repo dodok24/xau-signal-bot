@@ -1,6 +1,12 @@
 //@version=6
 indicator("XAU ARY LITE V1.1", overlay=true)
 
+h1Ema20 = request.security(syminfo.tickerid, "60", ta.ema(close, 20))
+h1Ema50 = request.security(syminfo.tickerid, "60", ta.ema(close, 50))
+
+trendBull = h1Ema20 > h1Ema50
+trendBear = h1Ema20 < h1Ema50
+
 ema20 = ta.ema(close, 20)
 ema50 = ta.ema(close, 50)
 
@@ -9,8 +15,8 @@ plot(ema50, title="EMA50")
 
 atr = ta.atr(14)
 
-buySignal = ta.crossover(ema20, ema50)
-sellSignal = ta.crossunder(ema20, ema50)
+buySignal = trendBull and ta.crossover(ema20, ema50)
+sellSignal = trendBear and ta.crossunder(ema20, ema50)
 
 buySL = close - atr * 1.5
 buyTP = close + atr * 3
@@ -34,10 +40,12 @@ if sellSignal
          "\nTP: " + str.tostring(sellTP),
          style=label.style_label_down)
 
-alertcondition(buySignal,
+alertcondition(
+     buySignal,
      title="BUY SIGNAL",
      message="XAU BUY")
 
-alertcondition(sellSignal,
+alertcondition(
+     sellSignal,
      title="SELL SIGNAL",
      message="XAU SELL")
