@@ -8,16 +8,22 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
+SYMBOL = "XAU/USD"
+
+last_signal = None
+last_bos_level = None
+
 
 def send_telegram(message):
-    telegram_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
     requests.post(
-        telegram_url,
+        url,
         data={
             "chat_id": CHAT_ID,
             "text": message
-        }
+        },
+        timeout=15
     )
 
 
@@ -31,7 +37,7 @@ def get_data(symbol, interval="5min", size=200):
         f"&apikey={API_KEY}"
     )
 
-    data = requests.get(url).json()
+    data = requests.get(url, timeout=20).json()
 
     if "values" not in data:
         return None
@@ -68,12 +74,16 @@ def calculate_atr(df, period=14):
     return atr.iloc[-1]
 
 
-def get_trend_score(symbol):
+def get_trend():
 
-    df_h1 = get_data(symbol, "1h", 200)
+    df_h1 = get_data(
+        SYMBOL,
+        "1h",
+        200
+    )
 
     if df_h1 is None:
-        return 0, "UNKNOWN"
+        return "NONE"
 
     ema20 = (
         df_h1["close"]
@@ -90,135 +100,251 @@ def get_trend_score(symbol):
     )
 
     if ema20 > ema50:
-        return 20, "BULLISH"
+        return "BULLISH"
 
-    elif ema20 < ema50:
-        return 20, "BEARISH"
+    if ema20 < ema50:
+        return "BEARISH"
 
-    return 0, "SIDEWAYS"
+    return "NONE"
 
 
-def get_momentum_score(df):
+def find_swings(df):
+
+    swing_highs = []
+    swing_lows = []
+
+    for i in range(2, len(df) - 2):
+
+        high = df["high"].iloc[i]
+
+        if (
+            high > df["high"].iloc[i - 1]
+            and high > df["high"].iloc[i - 2]
+            and high > df["high"].iloc[i + 1]
+            and high > df["high"].iloc[i + 2]
+        ):
+            swing_highs.append(
+                (i, high)
+            )
+
+        low = df["low"].iloc[i]
+
+        if (
+            low < df["low"].iloc[i - 1]
+            and low < df["low"].iloc[i - 2]
+            and low < df["low"].iloc[i + 1]
+            and low < df["low"].iloc[i + 2]
+        ):
+            swing_lows.append(
+                (i, low)
+            )
+
+    return swing_highs, swing_lows
+
+
+def detect_structure(
+    swing_highs,
+    swing_lows
+):
+
+    if (
+        len(swing_highs) < 2
+        or len(swing_lows) < 2
+    ):
+        return "NONE"
+
+    last_high = swing_highs[-1][1]
+    prev_high = swing_highs[-2][1]
+
+    last_low = swing_lows[-1][1]
+    prev_low = swing_lows[-2][1]
+
+    if (
+        last_high > prev_high
+        and last_low > prev_low
+    ):
+        return "HHHL"
+
+    if (
+        last_high < prev_high
+        and last_low < prev_low
+    ):
+        return "LHLL"
+
+    return "NONE"
+
+
+def detect_bos(
+    df,
+    swing_highs,
+    swing_lows
+):
+
+    close_price = (
+        df["close"].iloc[-1]
+    )
+
+    if len(swing_highs) > 0:
+
+        level = swing_highs[-1][1]
+
+        if close_price > level:
+
+            return (
+                "BULLISH",
+                level
+            )
+
+    if len(swing_lows) > 0:
+
+        level = swing_lows[-1][1]
+
+        if close_price < level:
+
+            return (
+                "BEARISH",
+                level
+            )
+
+    return (
+        "NONE",
+        None
+    )
+
+
+def momentum_valid(df):
 
     candle = df.iloc[-1]
 
     body = abs(
-        candle["close"] -
-        candle["open"]
+        candle["close"]
+        - candle["open"]
     )
 
-    candle_range = (
-        candle["high"] -
-        candle["low"]
+    rng = (
+        candle["high"]
+        - candle["low"]
     )
 
-    if candle_range == 0:
-        return 0
+    if rng == 0:
+        return False
 
-    ratio = body / candle_range
+    ratio = body / rng
 
-    if ratio >= 0.6:
-        return 30
-
-    elif ratio >= 0.4:
-        return 15
-
-    return 0
+    return ratio >= 0.6
 
 
-def scan_symbol(symbol):
+def snr_valid(
+    price,
+    swing_highs,
+    swing_lows,
+    atr
+):
 
-    df = get_data(symbol)
+    if (
+        len(swing_highs) < 3
+        or len(swing_lows) < 3
+    ):
+        return False
 
-    if df is None:
-        return None
+    resistance = sum(
+        x[1]
+        for x in swing_highs[-3:]
+    ) / 3
 
-    price = df["close"].iloc[-1]
+    support = sum(
+        x[1]
+        for x in swing_lows[-3:]
+    ) / 3
 
-    ema20 = (
-        df["close"]
-        .ewm(span=20)
-        .mean()
-        .iloc[-1]
+    dist_res = (
+        resistance - price
     )
 
-    ema50 = (
-        df["close"]
-        .ewm(span=50)
-        .mean()
-        .iloc[-1]
+    dist_sup = (
+        price - support
     )
 
-    atr = calculate_atr(df)
+    if (
+        dist_res > 0
+        and dist_res < atr
+    ):
+        return False
 
-    trend_score, trend = get_trend_score(symbol)
+    if (
+        dist_sup > 0
+        and dist_sup < atr
+    ):
+        return False
 
-    momentum_score = get_momentum_score(df)
+    return True
 
-    pullback_score = 0
 
-    if abs(price - ema20) < atr:
-        pullback_score = 20
+def send_signal(
+    signal,
+    price,
+    atr,
+    structure,
+    bos_level
+):
 
-    atr_score = 10 if atr > 0 else 0
+    now = datetime.now()
 
-    score = (
-        trend_score +
-        momentum_score +
-        pullback_score +
-        atr_score
-    )
+    if signal == "BUY":
 
-    if score >= 90:
-        grade = "PREMIUM"
+        sl = (
+            price
+            - (atr * 1.5)
+        )
 
-    elif score >= 80:
-        grade = "A+"
+        tp1 = (
+            price
+            + (atr * 2)
+        )
 
-    elif score >= 70:
-        grade = "A"
+        tp2 = (
+            price
+            + (atr * 4)
+        )
+
+        tp3 = (
+            price
+            + (atr * 6)
+        )
 
     else:
-        grade = "NO TRADE"
 
-    signal = "NO TRADE"
+        sl = (
+            price
+            + (atr * 1.5)
+        )
 
-    if score >= 70:
+        tp1 = (
+            price
+            - (atr * 2)
+        )
 
-        if trend == "BULLISH":
-            signal = "BUY"
+        tp2 = (
+            price
+            - (atr * 4)
+        )
 
-            entry = price
-            sl = price - (atr * 1.5)
-            tp1 = price + (atr * 2)
-            tp2 = price + (atr * 4)
-            tp3 = price + (atr * 6)
+        tp3 = (
+            price
+            - (atr * 6)
+        )
 
-        elif trend == "BEARISH":
-            signal = "SELL"
-
-            entry = price
-            sl = price + (atr * 1.5)
-            tp1 = price - (atr * 2)
-            tp2 = price - (atr * 4)
-            tp3 = price - (atr * 6)
-
-        else:
-            return None
-
-        now = datetime.now()
-
-        return f"""
-🚀 XAU SIGNAL ARY
+    message = f"""
+🚀 XAU ARY V4
 
 Tanggal : {now.strftime('%d-%m-%Y')}
 Jam      : {now.strftime('%H:%M:%S')}
 
-Pair     : {symbol}
+Pair     : XAU/USD
 
 SIGNAL   : {signal}
 
-Entry    : {entry:.2f}
+Entry    : {price:.2f}
 
 SL       : {sl:.2f}
 
@@ -226,49 +352,119 @@ TP1      : {tp1:.2f}
 TP2      : {tp2:.2f}
 TP3      : {tp3:.2f}
 
-Trend        : {trend}
-Trend Score  : {trend_score}
-Momentum     : {momentum_score}
-Pullback     : {pullback_score}
-ATR Filter   : {atr_score}
+Structure : {structure}
+BOS Level : {bos_level:.2f}
 
-Score        : {score}
-Grade        : {grade}
+Status    : NEW SETUP
 """
 
-    return None
+    send_telegram(message)
+
+    print(message)
 
 
-def run_scan():
+def scan():
 
-    try:
+    global last_signal
+    global last_bos_level
 
-        for symbol in [
-            "XAU/USD",
-            "BTC/USD"
-        ]:
+    df = get_data(SYMBOL)
 
-            result = scan_symbol(symbol)
+    if df is None:
+        return
 
-            if result:
-                send_telegram(result)
-                print(result)
+    trend = get_trend()
 
-    except Exception as e:
+    if trend == "NONE":
+        return
 
-        error_msg = (
-            f"⚠️ XAU SIGNAL ARY ERROR\n\n{str(e)}"
+    atr = calculate_atr(df)
+
+    price = df["close"].iloc[-1]
+
+    swing_highs, swing_lows = (
+        find_swings(df)
+    )
+
+    structure = detect_structure(
+        swing_highs,
+        swing_lows
+    )
+
+    bos_type, bos_level = (
+        detect_bos(
+            df,
+            swing_highs,
+            swing_lows
+        )
+    )
+
+    if not momentum_valid(df):
+        return
+
+    if not snr_valid(
+        price,
+        swing_highs,
+        swing_lows,
+        atr
+    ):
+        return
+
+    if (
+        trend == "BULLISH"
+        and structure == "HHHL"
+        and bos_type == "BULLISH"
+    ):
+
+        if (
+            last_signal == "BUY"
+            and last_bos_level == bos_level
+        ):
+            return
+
+        last_signal = "BUY"
+        last_bos_level = bos_level
+
+        send_signal(
+            "BUY",
+            price,
+            atr,
+            structure,
+            bos_level
         )
 
-        send_telegram(error_msg)
+    if (
+        trend == "BEARISH"
+        and structure == "LHLL"
+        and bos_type == "BEARISH"
+    ):
 
-        print(error_msg)
+        if (
+            last_signal == "SELL"
+            and last_bos_level == bos_level
+        ):
+            return
+
+        last_signal = "SELL"
+        last_bos_level = bos_level
+
+        send_signal(
+            "SELL",
+            price,
+            atr,
+            structure,
+            bos_level
+        )
 
 
 while True:
 
-    run_scan()
+    try:
 
-    print("Scanning...")
+        scan()
 
-    time.sleep(300)
+    except Exception as e:
+
+        print(e)
+
+    time.sleep(60)
